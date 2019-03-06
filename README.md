@@ -1,6 +1,9 @@
 # STAT614_NYCTrees
 Repo for our NYC Trees Project
 
+* [Interpret Logistic Regression](https://stats.idre.ucla.edu/other/mult-pkg/faq/general/faq-how-do-i-interpret-odds-ratios-in-logistic-regression/)
+* [Interpret Multinomial Logistic Regression](https://stats.idre.ucla.edu/stata/output/multinomial-logistic-regression-2/)
+
 ## Logistic Regression
 ```{r}
 # Here's a general linear model, logisitc regression for R:
