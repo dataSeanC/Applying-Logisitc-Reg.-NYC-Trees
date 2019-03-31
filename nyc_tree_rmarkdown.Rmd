@@ -1,0 +1,87 @@
+---
+title: "STAT614_Project_NYCTrees"
+author: "Sean E. Curl"
+date: "March 31, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+# packages required
+library(readr)
+library(tidyverse)
+library(purrr)
+library(plyr)
+```
+
+```{r, load and clean}
+# getwd()
+
+# load staten data, minus three columns: address, latitude, and longitide
+data_staten <- read.csv("statenislandtidy.csv", stringsAsFactors = FALSE) %>%
+  select(-c("address", "latitude", "longitude")) %>%
+  as.data.frame(stringsAsFactors=FALSE)
+glimpse(data_staten)
+
+# load manhatten data, minus three columns: address, latitude, and longitide
+data_manhatten <- read.csv("manhattantidy.csv", stringsAsFactors = FALSE) %>%
+  select(-c("address", "latitude", "longitude")) %>%
+  as.data.frame()
+# glimpse(data_manhatten)
+
+data_joined <- full_join(data_staten, data_manhatten)
+
+# Check for NA's
+data_joined %>%  map_dbl(~sum(is.na(.)))
+
+# Remove NA's
+data_joined <- data_joined %>%
+  na.omit()
+```
+
+```{r, change health to binomial}
+data_joined$health[data_joined$health == "Good"] <- 1
+data_joined$health[data_joined$health == "Fair"] <- 1
+data_joined$health[data_joined$health == "Poor"] <- 0
+data_joined$health <- as.factor(data_joined$health)
+```
+
+```{r, split into train and test for data_staten}
+smp_size <- floor(0.70 * nrow(data_joined))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(data_joined)), size = smp_size)
+
+train <- data_joined[train_ind, ]
+test <- data_joined[-train_ind, ]
+```
+
+```{r, baseline}
+round(prop.table(table(data_joined$health)*100), digits = 2)
+```
+
+```{r}
+# removed status
+# Error in `contrasts<-`(`*tmp*`, value = contr.funs[1 + isOF[nn]]) : contrasts can be applied only to factors with 2 or more levels
+train_filt <- train %>%
+  select(-c(X, tree_id, status, problems, brch_light, brch_shoe, brch_other))
+#  select(tree_dbh, stump_diam, curb_loc, health, spc_common, steward, guards, sidewalk, root_stone, root_grate, root_other, trunk_wire, trnk_light, trnk_other)
+
+fit <- glm(health~., family = binomial(link = logit), data = train_filt)
+summary(fit)
+```
+
+```{r}
+# Choose the best model via the stepwise procedure
+null = glm(health ~ 1, family = binomial(link=logit), data = train_filt)
+full <- glm(health ~., family = binomial(link=logit), data = train_filt)
+step(null, scope=list(lower=null, upper=full), direction="both")
+
+# final model selected: Step:  AIC=1030.86
+# health ~ tree_dbh + root_stone + trnk_other + trnk_light + sidewalk + root_other
+```
+
