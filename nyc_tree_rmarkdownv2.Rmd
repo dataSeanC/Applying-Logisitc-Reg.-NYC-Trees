@@ -1,0 +1,152 @@
+---
+title: "STAT614_Project_NYCTrees"
+author: "Sean E. Curl"
+date: "March 31, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+# packages required
+library(readr)
+library(tidyverse)
+library(purrr)
+library(plyr)
+```
+
+```{r, load and clean}
+# getwd()
+
+# load staten data, minus columns in select
+data_staten <- read.csv("statenislandtidy.csv", stringsAsFactors = FALSE) %>%
+  select(-c("stump_diam", "status", "spc_common", "guards", "problems", "steward", "root_other", "trnk_light", "trnk_other", "brch_shoe", "brch_other", "address", "latitude", "longitude")) %>%
+  as.data.frame()
+# glimpse(data_staten)
+
+# load manhatten data, minus columns in select
+data_manhatten <- read.csv("manhattantidy.csv", stringsAsFactors = FALSE) %>%
+  select(-c("stump_diam", "status", "spc_common", "guards", "problems", "steward", "root_other", "trnk_light", "trnk_other", "brch_shoe", "brch_other", "address", "latitude", "longitude")) %>%
+  as.data.frame()
+# glimpse(data_manhatten)
+
+# tree_id requried for full_join
+data_joined <- full_join(data_staten, data_manhatten)
+
+# Check for NA's
+data_joined %>%  map_dbl(~sum(is.na(.)))
+
+# Remove NA's
+data_joined <- data_joined %>%
+  na.omit()
+
+```
+
+```{r, fix sidewalk}
+data_joined$sidewalk[data_joined$sidewalk == "Damage"] <- 1
+data_joined$sidewalk[data_joined$sidewalk == "NoDamage"] <- 0
+
+data_joined$curb_loc[data_joined$curb_loc == "OnCurb"] <- 1
+data_joined$curb_loc[data_joined$curb_loc == "OffsetFromCurb"] <- 0
+
+data_joined$root_grate[data_joined$root_grate == "Yes"] <- 1
+data_joined$root_grate[data_joined$root_grate == "No"] <- 0
+
+data_joined$trunk_wire[data_joined$trunk_wire == "Yes"] <- 1
+data_joined$trunk_wire[data_joined$trunk_wire == "No"] <- 0
+
+data_joined$root_stone[data_joined$root_stone == "Yes"] <- 1
+data_joined$root_stone[data_joined$root_stone == "No"] <- 0
+
+data_joined$brch_light[data_joined$brch_light == "Yes"] <- 1
+data_joined$brch_light[data_joined$brch_light == "No"] <- 0
+```
+
+```{r, change health to binomial}
+data_joined$health[data_joined$health == "Good"] <- 1
+data_joined$health[data_joined$health == "Fair"] <- 1
+data_joined$health[data_joined$health == "Poor"] <- 0
+data_joined$health <- as.factor(data_joined$health)
+
+# write.csv(data_joined, file = "nycdata_cleaned.csv")
+```
+
+```{r, split into train and test for data_staten}
+smp_size <- floor(0.70 * nrow(data_joined))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(data_joined)), size = smp_size)
+
+train <- data_joined[train_ind, ]
+test <- data_joined[-train_ind, ]
+```
+
+```{r, baseline}
+round(prop.table(table(data_joined$health)*100), digits = 2)
+```
+
+```{r}
+# remove tree_id, it's no longer needed
+train_filt <- train %>%
+  select(-c(tree_id))
+
+test_filt <- test %>%
+  select(-c(tree_id))
+
+
+fit <- glm(health~., family = binomial(link = logit), data = train_filt)
+summary(fit)
+```
+
+```{r}
+# Choose the best model via the stepwise procedure
+null = glm(health ~ 1, family = binomial(link=logit), data = train_filt)
+full <- glm(health ~., family = binomial(link=logit), data = train_filt)
+step(null, scope=list(lower=null, upper=full), direction="both")
+
+# final model selected: Step:  AIC=1030.86
+# health ~ tree_dbh + root_stone + trnk_other + trnk_light + sidewalk + root_other
+```
+
+```{r, reduced model}
+# Step:  AIC=1041.22
+# health ~ tree_dbh + root_stone + sidewalk + root_grate
+red_fit <- glm(formula = health ~ tree_dbh + root_stone + sidewalk + root_grate, family = binomial(link = logit), data = train_filt)
+summary(red_fit)
+```
+
+```{r}
+anova(fit, red_fit)
+anova(red_fit, test = "Chisq")
+```
+
+# CROSS-VALIDATION
+```{r}
+# Cross-validation of the fitted model on the training data.
+# How well does the reduced model predict within the training data?
+cv.train <- train_filt
+cv.test <- test_filt
+
+# Classify a tree is healthy if the probability of that exceeds 0.90
+fitted.results <- predict(red_fit, data.frame(cv.test), type="response" )
+fitted.results <- 1*( fitted.results > 0.90 )
+
+misClasificError <- mean(fitted.results != cv.test$health)
+
+table(fitted.results, cv.test$health)
+print(paste('Accuracy',1-misClasificError))
+
+# Accuracy = (4+1381)/(4+56+59+1381) = 0.923333333333333
+error <- 1-0.923333333333333
+error
+# Error Rate = 0.07666667
+```
+
+
+```{r}
+
+```
+
